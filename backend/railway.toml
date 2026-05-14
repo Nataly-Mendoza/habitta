@@ -1,0 +1,21 @@
+# =============================================================================
+# Railway deployment configuration for Habitta Laravel backend
+# https://docs.railway.app/reference/railway-toml
+# =============================================================================
+
+[build]
+builder = "NIXPACKS"
+
+# Composer install (no dev deps) + cache warming
+# Migrations and storage:link run at startup (need the live DB connection)
+buildCommand = "composer install --no-dev --optimize-autoloader"
+
+[deploy]
+startCommand = "bash start.sh"
+
+# Railway calls /up (Laravel's built-in health endpoint)
+healthcheckPath = "/up"
+healthcheckTimeout = 300
+
+restartPolicyType      = "ON_FAILURE"
+restartPolicyMaxRetries = 10
