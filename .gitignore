@@ -1,41 +1,24 @@
-# Backend (Laravel)
-backend/vendor/
-backend/.env
-backend/.env.local
-backend/.env.*.php
-backend/.DS_Store
-backend/Thumbs.db
-backend/node_modules/
-backend/dist/
-backend/storage/logs/
-backend/storage/framework/cache/
-backend/storage/framework/sessions/
-backend/storage/framework/views/
-backend/bootstrap/cache/
-backend/public/hot
-backend/public/storage
-backend/.vscode/
-backend/.idea/
-
-# Frontend (React)
-frontend/node_modules/
-frontend/dist/
-frontend/.env.local
-frontend/.env.*.local
-frontend/*.local
-frontend/.DS_Store
-frontend/Thumbs.db
-frontend/.vscode/
-frontend/.idea/
-
-# IDE
+# Laravel Backend
+vendor/
+.env
+.env.local
+.env.*.php
+.DS_Store
+Thumbs.db
+node_modules/
+dist/
+storage/logs/
+storage/framework/cache/
+storage/framework/sessions/
+storage/framework/views/
+bootstrap/cache/
+public/hot
+public/storage
 .vscode/
 .idea/
+
+# IDE
 *.swp
 *.swo
 *~
 
-# OS
-.DS_Store
-Thumbs.db
-.env

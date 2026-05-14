@@ -1,34 +1,27 @@
-# Habitta - Plataforma de Propiedades
+# Habitta - API REST para Plataforma de Propiedades
 
-Monorepo que contiene el backend (Laravel) y frontend (React) de la plataforma Habitta.
+Backend Laravel 12 para la plataforma Habitta. Gestiona autenticación, propiedades, favoritos, chat e integración con IA.
 
 ## Estructura
 
 ```
 habitta/
-├── backend/              # API REST con Laravel 12
-│   ├── app/
-│   ├── config/
-│   ├── database/
-│   ├── routes/
-│   ├── composer.json
-│   └── README.md
-│
-├── frontend/             # Interfaz con React + Vite + TypeScript
-│   ├── src/
-│   ├── public/
-│   ├── package.json
-│   └── README.md
-│
-└── README.md (este archivo)
+├── app/                  # Logica de aplicacion
+├── config/               # Configuracion
+├── database/             # Migraciones y seeders
+├── routes/               # Rutas API y web
+├── resources/            # Vistas Blade
+├── storage/              # Almacenamiento de archivos
+├── tests/                # Tests automatizados
+├── composer.json
+├── .env.example
+├── README.md
+└── TESTING.md
 ```
 
 ## Inicio Rapido
 
-### Backend (Laravel)
-
 ```bash
-cd backend
 composer install
 cp .env.example .env
 php artisan key:generate
@@ -38,27 +31,17 @@ php artisan serve
 
 Backend disponible en: http://127.0.0.1:8000
 
-### Frontend (React)
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-Frontend disponible en: http://localhost:5173
-
 ## Requisitos
 
-- PHP >= 8.2 (Backend)
-- Node.js >= 16 (Frontend)
-- PostgreSQL o SQLite (Base de datos)
+- PHP >= 8.2
+- Extensiones: pdo, mbstring, xml, curl, gd, zip
+- Composer
+- PostgreSQL o SQLite (para base de datos)
 
 ## Documentacion
 
-- Backend: Ver [backend/README.md](backend/README.md)
-- Frontend: Ver [frontend/README.md](frontend/README.md)
-- Testing: Ver [backend/TESTING.md](backend/TESTING.md) y [frontend/TESTING.md](frontend/TESTING.md)
+- Setup local: Ver [README.md](README.md)
+- Pruebas: Ver [TESTING.md](TESTING.md)
 
 ## Ramas
 
@@ -66,10 +49,6 @@ Frontend disponible en: http://localhost:5173
 - `develop` - Rama de desarrollo
 - `revision7/testing-baseline` - Linea base de testing
 - `revision7/deploy-ready` - Lista para producción
-
-## Team
-
-Desarrollado por Habitta Equipo.
 
 ## Licencia
 
