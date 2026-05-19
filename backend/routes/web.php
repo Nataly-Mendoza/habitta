@@ -90,6 +90,7 @@ Route::prefix('admin')
         Route::get('/users', [AdminWebController::class, 'users'])->name('users');
         Route::patch('/users/{user}/role', [AdminWebController::class, 'updateRole'])->name('users.role');
         Route::get('/properties', [AdminWebController::class, 'properties'])->name('properties');
+        Route::post('/properties/bulk-delete', [AdminWebController::class, 'bulkDeleteProperties'])->name('properties.bulk-delete');
         Route::delete('/properties/{property}', [AdminWebController::class, 'deleteProperty'])->name('properties.delete');
         Route::patch('/properties/{property}/close', [AdminWebController::class, 'closeProperty'])->name('properties.close');
     });

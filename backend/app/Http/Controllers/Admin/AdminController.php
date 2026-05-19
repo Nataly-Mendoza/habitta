@@ -37,6 +37,19 @@ class AdminController extends Controller
         return back()->with('exito', "Propiedad «{$title}» eliminada permanentemente.");
     }
 
+    public function bulkDeleteProperties(Request $request)
+    {
+        $request->validate([
+            'ids'   => 'required|array|min:1',
+            'ids.*' => 'integer|exists:properties,id',
+        ]);
+
+        $count = Property::whereIn('id', $request->ids)->count();
+        Property::whereIn('id', $request->ids)->delete();
+
+        return back()->with('exito', "{$count} " . ($count === 1 ? 'propiedad eliminada' : 'propiedades eliminadas') . ' permanentemente.');
+    }
+
     public function closeProperty(Request $request, Property $property)
     {
         $request->validate(['reason' => 'required|string|max:255']);
