@@ -153,8 +153,7 @@
             <h2 class="font-semibold mb-2" style="color:#1B2B5E;font-size:16px">Imágenes</h2>
             <p class="text-sm mb-4" style="color:#8A92B2">Sube hasta 20 fotos. La primera imagen será la principal. Formatos: JPG, PNG, WEBP (máx. 5 MB cada una).</p>
 
-            <label for="imagenesInput"
-                   class="flex flex-col items-center justify-center w-full rounded-xl cursor-pointer transition hover:opacity-90"
+            <label class="flex flex-col items-center justify-center w-full rounded-xl cursor-pointer transition hover:opacity-90"
                    style="border:2px dashed rgba(27,43,94,0.2);background:#F8F9FF;padding:32px 16px">
                 <svg width="32" height="32" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" style="color:#B0B8D0;margin-bottom:10px">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/>
