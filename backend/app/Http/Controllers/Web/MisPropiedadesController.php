@@ -75,9 +75,8 @@ class MisPropiedadesController extends Controller
         // File uploads
         if ($request->hasFile('images')) {
             foreach (array_values($request->file('images')) as $i => $file) {
-                $path = $file->store("properties/{$propiedad->id}", 'public');
                 $propiedad->images()->create([
-                    'path'    => $path,
+                    'path'    => $this->subirImagen($file, $propiedad->id),
                     'is_main' => $i === 0,
                     'order'   => $i,
                 ]);
@@ -136,9 +135,8 @@ class MisPropiedadesController extends Controller
             $nextOrder = $property->images()->max('order') + 1;
             $hasMain   = $property->images()->where('is_main', true)->exists();
             foreach (array_values($request->file('images')) as $i => $file) {
-                $path = $file->store("properties/{$property->id}", 'public');
                 $property->images()->create([
-                    'path'    => $path,
+                    'path'    => $this->subirImagen($file, $property->id),
                     'is_main' => (!$hasMain && $i === 0),
                     'order'   => $nextOrder++,
                 ]);
@@ -185,6 +183,18 @@ class MisPropiedadesController extends Controller
         }
 
         return back()->with('exito', 'Imagen eliminada.');
+    }
+
+    private function subirImagen(\Illuminate\Http\UploadedFile $file, int $propertyId): string
+    {
+        if (!empty(env('CLOUDINARY_CLOUD_NAME'))) {
+            return cloudinary()->upload($file->getRealPath(), [
+                'folder'        => "habitta/properties/{$propertyId}",
+                'resource_type' => 'image',
+            ])->getSecurePath();
+        }
+
+        return $file->store("properties/{$propertyId}", 'public');
     }
 
     private function mensajesValidacion(): array

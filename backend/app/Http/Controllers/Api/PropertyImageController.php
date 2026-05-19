@@ -23,9 +23,18 @@ class PropertyImageController extends Controller
 
         $created = [];
         $nextOrder = $property->images()->max('order') + 1;
+        $useCloudinary = !empty(env('CLOUDINARY_CLOUD_NAME'));
 
         foreach ($request->file('images') as $file) {
-            $path = $file->store("properties/{$property->id}", 'public');
+            if ($useCloudinary) {
+                $path = cloudinary()->upload($file->getRealPath(), [
+                    'folder'         => "habitta/properties/{$property->id}",
+                    'resource_type'  => 'image',
+                ])->getSecurePath();
+            } else {
+                $path = $file->store("properties/{$property->id}", 'public');
+            }
+
             $created[] = $property->images()->create([
                 'path'    => $path,
                 'is_main' => $property->images()->count() === 0,
