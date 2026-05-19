@@ -16,7 +16,9 @@ class AiController extends Controller
     private const DAILY_LIMIT  = 3;
 
     private const GEMINI_BASE  = 'https://generativelanguage.googleapis.com/v1beta/models/';
-    private const GEMINI_MODEL = 'gemini-2.0-flash-exp';
+    private const GEMINI_MODEL = 'gemini-2.0-flash-preview-image-generation';
+
+    private const POLLINATIONS_BASE = 'https://image.pollinations.ai/prompt/';
 
     private const HF_BASE       = 'https://api-inference.huggingface.co/models/';
     private const IMG2IMG_MODEL = 'timbrooks/instruct-pix2pix';
@@ -27,6 +29,11 @@ class AiController extends Controller
         . 'bookshelves, floor lamp, area rug, indoor plants, and warm ambient lighting. '
         . 'Preserve the exact room architecture, walls, windows, floors and ceiling — only add '
         . 'tasteful furniture and decorations. Return a high-quality, realistic interior design photo.';
+
+    private const POLLINATIONS_PROMPT = 'A beautifully furnished modern living room, '
+        . 'contemporary furniture, comfortable sofa, coffee table, bookshelves, floor lamp, '
+        . 'area rug, indoor plants, warm ambient lighting, interior design, cozy, '
+        . 'realistic, high quality photo, professional architectural photography, 4k';
 
     private const HF_PROMPT = 'Add modern contemporary furniture: sofa, coffee table, bookshelves, '
         . 'floor lamp, rug, plants, warm ambient lighting. Interior design, cozy living space, '
@@ -73,11 +80,24 @@ class AiController extends Controller
                     'generated' => $generated,
                     'used'      => $usedNow,
                     'limit'     => self::DAILY_LIMIT,
+                    'engine'    => 'Gemini 2.0 Flash',
                 ]);
             }
         }
 
-        // ── 2. HuggingFace ─────────────────────────────────────────────────────
+        // ── 2. Pollinations.ai — free, no key, always available ───────────────
+        $generated = $this->callPollinations();
+        if ($generated !== null) {
+            return response()->json([
+                'original'  => $request->image_url,
+                'generated' => $generated,
+                'used'      => $usedNow,
+                'limit'     => self::DAILY_LIMIT,
+                'engine'    => 'Flux (Pollinations.ai)',
+            ]);
+        }
+
+        // ── 3. HuggingFace ─────────────────────────────────────────────────────
         $hfKey = config('services.huggingface.key');
         if (! empty($hfKey) && $hfKey !== 'hf_YOUR_KEY_HERE' && strlen($imageBytes) > 0) {
             $base64Raw = base64_encode($imageBytes);
@@ -115,11 +135,12 @@ class AiController extends Controller
                     'generated' => $generated,
                     'used'      => $usedNow,
                     'limit'     => self::DAILY_LIMIT,
+                    'engine'    => 'HuggingFace',
                 ]);
             }
         }
 
-        // ── 3. GD fallback — always succeeds ──────────────────────────────────
+        // ── 4. GD fallback — always succeeds ──────────────────────────────────
         return $this->gdFallback($imageBytes, $mimeType, $request->image_url, $usedNow);
     }
 
@@ -194,6 +215,26 @@ class AiController extends Controller
             Log::error('AI: Gemini exception', ['msg' => $e->getMessage()]);
             return null;
         }
+    }
+
+    private function callPollinations(): ?string
+    {
+        $prompt = urlencode(self::POLLINATIONS_PROMPT);
+        $seed   = rand(1000, 99999);
+        $url    = self::POLLINATIONS_BASE . $prompt . '?width=768&height=512&model=flux&nologo=true&seed=' . $seed;
+
+        try {
+            $response = Http::timeout(45)->get($url);
+            $ct       = $response->header('Content-Type') ?? '';
+            if ($response->successful() && str_starts_with($ct, 'image/')) {
+                return 'data:' . trim(explode(';', $ct)[0]) . ';base64,' . base64_encode($response->body());
+            }
+            Log::warning('AI: Pollinations failed', ['status' => $response->status()]);
+        } catch (\Throwable $e) {
+            Log::warning('AI: Pollinations exception', ['msg' => $e->getMessage()]);
+        }
+
+        return null;
     }
 
     private function callHF(string $apiKey, string $model, array $payload): ?string

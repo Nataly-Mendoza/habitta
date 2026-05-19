@@ -97,7 +97,7 @@ $mainImgUrl = $mainImg?->url ?? 'https://images.unsplash.com/photo-1512917774080
                             <span class="text-xl">✨</span>
                             <div>
                                 <h3 class="font-semibold text-white text-base">Amueblar con IA</h3>
-                                <p class="text-xs" style="color:rgba(255,255,255,0.5)">Powered by Gemini 2.0 Flash · Generación de interiores con IA</p>
+                                <p id="iaEngineLabel" class="text-xs" style="color:rgba(255,255,255,0.5)">Generación de interiores con IA</p>
                             </div>
                         </div>
                         <button onclick="cerrarModalIA()" class="flex items-center justify-center w-8 h-8 rounded-lg transition hover:bg-white/10" style="color:rgba(255,255,255,0.6)">
@@ -359,6 +359,9 @@ function amueblarConIA() {
             document.getElementById('iaOriginalImg').src = data.original;
             document.getElementById('iaGeneratedImg').src = data.generated;
             document.getElementById('iaResult').style.display = 'block';
+            if (data.engine) {
+                document.getElementById('iaEngineLabel').textContent = 'Powered by ' + data.engine;
+            }
             if (data.used && data.limit) {
                 const remaining = data.limit - data.used;
                 document.getElementById('iaUsageText').textContent =
