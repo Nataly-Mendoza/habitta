@@ -44,7 +44,7 @@ class AiController extends Controller
 
     public function furnish(Request $request): JsonResponse
     {
-        set_time_limit(60);
+        set_time_limit(28);
 
         $request->validate([
             'image_url' => ['required', 'url', 'max:2048'],
@@ -67,11 +67,12 @@ class AiController extends Controller
         Cache::put($limitKey, $used + 1, now()->endOfDay());
         $usedNow = $used + 1;
 
-        // ── Fetch source image ─────────────────────────────────────────────────
+        // ── Fetch source image (5s cap so total stays within Railway's 30s) ────
         [$imageBytes, $mimeType] = $this->fetchImage($request->image_url);
 
-        // ── 1. Gemini ──────────────────────────────────────────────────────────
         $geminiKey = config('services.gemini.key');
+
+        // ── 1. Gemini (img2img, up to 18s) — only when key + image available ──
         if (! empty($geminiKey) && strlen($imageBytes) > 0) {
             $generated = $this->callGemini($geminiKey, $imageBytes, $mimeType);
             if ($generated !== null) {
@@ -83,67 +84,23 @@ class AiController extends Controller
                     'engine'    => 'Gemini 2.0 Flash',
                 ]);
             }
+            // Gemini failed — fall straight to GD (no time for more external calls)
+            return $this->gdFallback($imageBytes, $mimeType, $request->image_url, $usedNow);
         }
 
-        // ── 2. Pollinations.ai con descripción de Gemini Vision ───────────────
-        $roomDesc  = (! empty($geminiKey) && strlen($imageBytes) > 0)
-            ? $this->callGeminiVision($geminiKey, $imageBytes, $mimeType)
-            : null;
-        $generated = $this->callPollinations($roomDesc);
+        // ── 2. Pollinations turbo (txt2img, up to 20s) — no Gemini key or no image
+        $generated = $this->callPollinations(null);
         if ($generated !== null) {
             return response()->json([
                 'original'  => $request->image_url,
                 'generated' => $generated,
                 'used'      => $usedNow,
                 'limit'     => self::DAILY_LIMIT,
-                'engine'    => 'Flux (Pollinations.ai)',
+                'engine'    => 'Turbo (Pollinations.ai)',
             ]);
         }
 
-        // ── 3. HuggingFace ─────────────────────────────────────────────────────
-        $hfKey = config('services.huggingface.key');
-        if (! empty($hfKey) && $hfKey !== 'hf_YOUR_KEY_HERE' && strlen($imageBytes) > 0) {
-            $base64Raw = base64_encode($imageBytes);
-
-            $generated = strlen($imageBytes) <= 8 * 1024 * 1024
-                ? $this->callHF($hfKey, self::IMG2IMG_MODEL, [
-                    'inputs'     => $base64Raw,
-                    'parameters' => [
-                        'prompt'               => self::HF_PROMPT,
-                        'negative_prompt'      => self::NEGATIVE,
-                        'num_inference_steps'  => 20,
-                        'image_guidance_scale' => 1.5,
-                        'guidance_scale'       => 7.5,
-                    ],
-                ])
-                : null;
-
-            if ($generated === null) {
-                Log::info('AI: img2img failed, trying txt2img');
-                $generated = $this->callHF($hfKey, self::TXT2IMG_MODEL, [
-                    'inputs'     => self::HF_PROMPT,
-                    'parameters' => [
-                        'negative_prompt'     => self::NEGATIVE,
-                        'num_inference_steps' => 30,
-                        'guidance_scale'      => 7.5,
-                        'width'               => 768,
-                        'height'              => 512,
-                    ],
-                ]);
-            }
-
-            if ($generated !== null) {
-                return response()->json([
-                    'original'  => $request->image_url,
-                    'generated' => $generated,
-                    'used'      => $usedNow,
-                    'limit'     => self::DAILY_LIMIT,
-                    'engine'    => 'HuggingFace',
-                ]);
-            }
-        }
-
-        // ── 4. GD fallback — always succeeds ──────────────────────────────────
+        // ── 3. GD fallback — always succeeds ──────────────────────────────────
         return $this->gdFallback($imageBytes, $mimeType, $request->image_url, $usedNow);
     }
 
@@ -164,7 +121,7 @@ class AiController extends Controller
         }
 
         try {
-            $resp  = Http::timeout(8)->get($url);
+            $resp  = Http::timeout(5)->get($url);
             $bytes = $resp->successful() ? $resp->body() : '';
             $mime  = trim(explode(';', $resp->header('Content-Type') ?: 'image/jpeg')[0]);
             $mime  = in_array($mime, ['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
@@ -181,7 +138,7 @@ class AiController extends Controller
         $endpoint = self::GEMINI_BASE . self::GEMINI_MODEL . ':generateContent?key=' . $apiKey;
 
         try {
-            $response = Http::timeout(55)
+            $response = Http::timeout(14)
                 ->withHeaders(['Content-Type' => 'application/json'])
                 ->post($endpoint, [
                     'contents' => [[
@@ -225,7 +182,7 @@ class AiController extends Controller
         $endpoint = self::GEMINI_BASE . 'gemini-2.0-flash-exp:generateContent?key=' . $apiKey;
 
         try {
-            $response = Http::timeout(15)
+            $response = Http::timeout(5)
                 ->withHeaders(['Content-Type' => 'application/json'])
                 ->post($endpoint, [
                     'contents' => [[
@@ -260,10 +217,10 @@ class AiController extends Controller
             : self::POLLINATIONS_PROMPT;
 
         $url = self::POLLINATIONS_BASE . urlencode($basePrompt)
-             . '?width=768&height=512&model=flux&nologo=true&seed=' . rand(1000, 99999);
+             . '?width=512&height=384&model=turbo&nologo=true&seed=' . rand(1000, 99999);
 
         try {
-            $response = Http::timeout(45)->get($url);
+            $response = Http::timeout(20)->get($url);
             $ct       = $response->header('Content-Type') ?? '';
             if ($response->successful() && str_starts_with($ct, 'image/')) {
                 return 'data:' . trim(explode(';', $ct)[0]) . ';base64,' . base64_encode($response->body());
