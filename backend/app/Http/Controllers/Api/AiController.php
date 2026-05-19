@@ -16,7 +16,7 @@ class AiController extends Controller
     private const DAILY_LIMIT  = 3;
 
     private const GEMINI_BASE  = 'https://generativelanguage.googleapis.com/v1beta/models/';
-    private const GEMINI_MODEL = 'gemini-2.0-flash-preview-image-generation';
+    private const GEMINI_MODEL = 'gemini-2.0-flash-exp';
 
     private const HF_BASE       = 'https://api-inference.huggingface.co/models/';
     private const IMG2IMG_MODEL = 'timbrooks/instruct-pix2pix';
