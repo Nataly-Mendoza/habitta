@@ -29,3 +29,10 @@ nixPkgs = [
     "php83Extensions.zip",
     "php83Extensions.openssl"
 ]
+
+# Override the install phase so Nixpacks only runs composer.
+# Without this, Nixpacks auto-detects package.json and tries to run
+# "npm i" — but npm is not in our nixPkgs (the Blade views use CDN
+# Tailwind, so Vite/npm is not needed in production).
+[phases.install]
+cmds = ["composer install --no-dev --optimize-autoloader"]
