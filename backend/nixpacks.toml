@@ -1,20 +1,10 @@
-# =============================================================================
-# Nixpacks configuration — forces PHP 8.3 and declares required extensions
-# https://nixpacks.com/docs/configuration/file
-# =============================================================================
+# Tell Nixpacks to only use the PHP provider.
+# Without this, it auto-detects package.json and adds Node/npm to the build,
+# then fails because npm is not in nixPkgs. The Blade views use CDN Tailwind
+# so Vite/npm is not needed in production.
+providers = ["php"]
 
 [phases.setup]
-# Explicit PHP 8.3 package + Composer + extensions needed by Habitta:
-#   gd         — AI furnishing GD fallback (imagefilter, imagecreatefromstring, etc.)
-#   pdo        — Laravel database layer
-#   pdo_pgsql  — PostgreSQL (Railway add-on)
-#   mbstring   — string helpers, Laravel internals
-#   tokenizer  — required by Laravel
-#   xml        — required by Laravel / Sanctum
-#   curl       — HTTP::get / Http facade (HuggingFace calls)
-#   fileinfo   — mime-type detection for uploaded images
-#   zip        — Composer itself needs this
-#   openssl    — Sanctum token hashing
 nixPkgs = [
     "php83",
     "php83Packages.composer",
@@ -30,9 +20,5 @@ nixPkgs = [
     "php83Extensions.openssl"
 ]
 
-# Override the install phase so Nixpacks only runs composer.
-# Without this, Nixpacks auto-detects package.json and tries to run
-# "npm i" — but npm is not in our nixPkgs (the Blade views use CDN
-# Tailwind, so Vite/npm is not needed in production).
 [phases.install]
 cmds = ["composer install --no-dev --optimize-autoloader"]
