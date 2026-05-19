@@ -334,7 +334,7 @@ function amueblarConIA() {
     document.getElementById('iaResult').style.display = 'none';
 
     const csrf = document.querySelector('meta[name="csrf-token"]')?.content ?? '';
-    fetch('{{ route("panel.ai.furnish") }}', {
+    fetch('/panel/ai/furnish', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
