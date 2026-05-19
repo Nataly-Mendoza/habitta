@@ -42,6 +42,22 @@ class AdminController extends Controller
         ]);
     }
 
+    public function bulkDeleteProperties(Request $request): JsonResponse
+    {
+        $request->validate([
+            'ids'   => 'required|array|min:1',
+            'ids.*' => 'integer|exists:properties,id',
+        ]);
+
+        $count = Property::whereIn('id', $request->ids)->count();
+        Property::whereIn('id', $request->ids)->delete();
+
+        return response()->json([
+            'message' => "{$count} " . ($count === 1 ? 'propiedad eliminada' : 'propiedades eliminadas') . ' permanentemente.',
+            'deleted' => $count,
+        ]);
+    }
+
     public function properties(): JsonResponse
     {
         $properties = Property::with(['owner', 'images'])

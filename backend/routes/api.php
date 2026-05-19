@@ -77,5 +77,6 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/users', [AdminController::class, 'users']);
         Route::patch('/users/{id}/role', [AdminController::class, 'updateRole']);
         Route::get('/properties', [AdminController::class, 'properties']);
+        Route::post('/properties/bulk-delete', [AdminController::class, 'bulkDeleteProperties']);
     });
 });
