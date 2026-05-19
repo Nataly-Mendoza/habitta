@@ -97,7 +97,7 @@ $mainImgUrl = $mainImg?->url ?? 'https://images.unsplash.com/photo-1512917774080
                             <span class="text-xl">✨</span>
                             <div>
                                 <h3 class="font-semibold text-white text-base">Amueblar con IA</h3>
-                                <p class="text-xs" style="color:rgba(255,255,255,0.5)">Powered by Stable Diffusion · instruct-pix2pix</p>
+                                <p class="text-xs" style="color:rgba(255,255,255,0.5)">Powered by Gemini 2.0 Flash · Generación de interiores con IA</p>
                             </div>
                         </div>
                         <button onclick="cerrarModalIA()" class="flex items-center justify-center w-8 h-8 rounded-lg transition hover:bg-white/10" style="color:rgba(255,255,255,0.6)">
@@ -147,7 +147,8 @@ $mainImgUrl = $mainImg?->url ?? 'https://images.unsplash.com/photo-1512917774080
                                     </div>
                                 </div>
                             </div>
-                            <p class="text-xs text-center" style="color:#B0B8D0">Generado con Hugging Face · instruct-pix2pix · Solo para visualización</p>
+                            <p class="text-xs text-center" style="color:#B0B8D0">Generado con Gemini 2.0 Flash · Solo para visualización</p>
+                        <p id="iaUsageText" class="text-xs text-center mt-1" style="color:#C9A96E"></p>
                         </div>
                     </div>
                 </div>
@@ -346,19 +347,36 @@ function amueblarConIA() {
     .then(async (res) => {
         const data = await res.json();
         document.getElementById('iaLoading').style.display = 'none';
-        if (!res.ok) {
+        if (res.status === 429) {
+            document.getElementById('iaErrorMsg').textContent = data.error || 'Límite diario alcanzado.';
+            document.getElementById('iaRetryBtn').style.display = 'none';
+            document.getElementById('iaError').style.display = 'block';
+        } else if (!res.ok) {
             document.getElementById('iaErrorMsg').textContent = data.message || 'Error al generar la imagen.';
-            document.getElementById('iaRetryBtn').style.display = (data.retry === false) ? 'none' : 'inline-flex';
+            document.getElementById('iaRetryBtn').style.display = 'inline-flex';
             document.getElementById('iaError').style.display = 'block';
         } else {
             document.getElementById('iaOriginalImg').src = data.original;
             document.getElementById('iaGeneratedImg').src = data.generated;
             document.getElementById('iaResult').style.display = 'block';
+            if (data.used && data.limit) {
+                const remaining = data.limit - data.used;
+                document.getElementById('iaUsageText').textContent =
+                    remaining > 0
+                        ? `Generaciones restantes hoy: ${remaining} de ${data.limit}`
+                        : 'Has usado todas tus generaciones por hoy.';
+                const btn = document.getElementById('btnIA');
+                if (btn && remaining <= 0) {
+                    btn.disabled = true;
+                    btn.title = 'Límite diario alcanzado';
+                }
+            }
         }
     })
     .catch(() => {
         document.getElementById('iaLoading').style.display = 'none';
         document.getElementById('iaErrorMsg').textContent = 'Error de conexión. Verifica tu conexión e inténtalo de nuevo.';
+        document.getElementById('iaRetryBtn').style.display = 'inline-flex';
         document.getElementById('iaError').style.display = 'block';
     });
 }

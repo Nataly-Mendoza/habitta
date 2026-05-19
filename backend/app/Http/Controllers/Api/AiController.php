@@ -5,17 +5,30 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
 class AiController extends Controller
 {
+    private const DAILY_LIMIT  = 3;
+
+    private const GEMINI_BASE  = 'https://generativelanguage.googleapis.com/v1beta/models/';
+    private const GEMINI_MODEL = 'gemini-2.0-flash-preview-image-generation';
+
+    private const HF_BASE       = 'https://api-inference.huggingface.co/models/';
     private const IMG2IMG_MODEL = 'timbrooks/instruct-pix2pix';
     private const TXT2IMG_MODEL = 'stabilityai/stable-diffusion-2-1';
-    private const API_BASE      = 'https://api-inference.huggingface.co/models/';
 
-    private const PROMPT = 'Add modern contemporary furniture: sofa, coffee table, bookshelves, '
+    private const GEMINI_PROMPT = 'You are an expert interior designer. '
+        . 'Furnish this room with modern contemporary furniture: a comfortable sofa, coffee table, '
+        . 'bookshelves, floor lamp, area rug, indoor plants, and warm ambient lighting. '
+        . 'Preserve the exact room architecture, walls, windows, floors and ceiling — only add '
+        . 'tasteful furniture and decorations. Return a high-quality, realistic interior design photo.';
+
+    private const HF_PROMPT = 'Add modern contemporary furniture: sofa, coffee table, bookshelves, '
         . 'floor lamp, rug, plants, warm ambient lighting. Interior design, cozy living space, '
         . 'realistic, high quality photo, professionally decorated.';
 
@@ -24,55 +37,56 @@ class AiController extends Controller
 
     public function furnish(Request $request): JsonResponse
     {
-        // Allow up to 60 s — the built-in PHP server default can be shorter
         set_time_limit(60);
 
         $request->validate([
             'image_url' => ['required', 'url', 'max:2048'],
         ]);
 
-        $apiKey = config('services.huggingface.key');
+        // ── Rate limit ─────────────────────────────────────────────────────────
+        $limitKey = 'ai_furnish_' . (Auth::id() ?? sha1($request->ip()));
+        $used     = (int) Cache::get($limitKey, 0);
 
-        // ── 1. Fetch the source image ──────────────────────────────────────────
-        $appStorageBase = rtrim(config('app.url'), '/') . '/storage/';
-        $isLocal        = str_starts_with($request->image_url, $appStorageBase);
+        if ($used >= self::DAILY_LIMIT) {
+            return response()->json([
+                'error'     => 'Límite diario alcanzado. Puedes generar hasta ' . self::DAILY_LIMIT . ' imágenes por día.',
+                'limit'     => self::DAILY_LIMIT,
+                'used'      => $used,
+                'retry'     => false,
+            ], 429);
+        }
 
-        if ($isLocal) {
-            $storagePath = urldecode(substr($request->image_url, strlen($appStorageBase)));
-            if (! Storage::disk('public')->exists($storagePath)) {
-                return $this->gdFallback('', 'image/jpeg', $request->image_url);
-            }
-            $imageBytes = Storage::disk('public')->get($storagePath);
-            $mimeType   = Storage::disk('public')->mimeType($storagePath) ?: 'image/jpeg';
-        } else {
-            try {
-                $imgResponse = Http::timeout(8)->get($request->image_url);
-                $imageBytes  = $imgResponse->successful() ? $imgResponse->body() : '';
-                $mimeType    = $imgResponse->header('Content-Type') ?: 'image/jpeg';
-            } catch (\Throwable $e) {
-                Log::warning('AI: image download failed', ['error' => $e->getMessage()]);
-                $imageBytes = '';
-                $mimeType   = 'image/jpeg';
+        // Increment before the API call so concurrent clicks don't bypass the limit
+        Cache::put($limitKey, $used + 1, now()->endOfDay());
+        $usedNow = $used + 1;
+
+        // ── Fetch source image ─────────────────────────────────────────────────
+        [$imageBytes, $mimeType] = $this->fetchImage($request->image_url);
+
+        // ── 1. Gemini ──────────────────────────────────────────────────────────
+        $geminiKey = config('services.gemini.key');
+        if (! empty($geminiKey) && strlen($imageBytes) > 0) {
+            $generated = $this->callGemini($geminiKey, $imageBytes, $mimeType);
+            if ($generated !== null) {
+                return response()->json([
+                    'original'  => $request->image_url,
+                    'generated' => $generated,
+                    'used'      => $usedNow,
+                    'limit'     => self::DAILY_LIMIT,
+                ]);
             }
         }
 
-        $mimeType = trim(explode(';', $mimeType)[0]);
-        if (! in_array($mimeType, ['image/jpeg', 'image/png', 'image/webp', 'image/gif'])) {
-            $mimeType = 'image/jpeg';
-        }
-
-        // ── 2. Try Hugging Face if API key is configured ───────────────────────
-        if (! empty($apiKey) && $apiKey !== 'hf_YOUR_KEY_HERE' && strlen($imageBytes) > 0) {
-
-            // HF Inference API expects a plain base64 string (NO data: prefix) in inputs
+        // ── 2. HuggingFace ─────────────────────────────────────────────────────
+        $hfKey = config('services.huggingface.key');
+        if (! empty($hfKey) && $hfKey !== 'hf_YOUR_KEY_HERE' && strlen($imageBytes) > 0) {
             $base64Raw = base64_encode($imageBytes);
 
-            // Primary: instruct-pix2pix (image-to-image instruction following)
             $generated = strlen($imageBytes) <= 8 * 1024 * 1024
-                ? $this->callHF($apiKey, self::IMG2IMG_MODEL, [
+                ? $this->callHF($hfKey, self::IMG2IMG_MODEL, [
                     'inputs'     => $base64Raw,
                     'parameters' => [
-                        'prompt'               => self::PROMPT,
+                        'prompt'               => self::HF_PROMPT,
                         'negative_prompt'      => self::NEGATIVE,
                         'num_inference_steps'  => 20,
                         'image_guidance_scale' => 1.5,
@@ -81,11 +95,10 @@ class AiController extends Controller
                 ])
                 : null;
 
-            // Secondary: stable-diffusion text-to-image (no input image needed)
             if ($generated === null) {
                 Log::info('AI: img2img failed, trying txt2img');
-                $generated = $this->callHF($apiKey, self::TXT2IMG_MODEL, [
-                    'inputs'     => self::PROMPT,
+                $generated = $this->callHF($hfKey, self::TXT2IMG_MODEL, [
+                    'inputs'     => self::HF_PROMPT,
                     'parameters' => [
                         'negative_prompt'     => self::NEGATIVE,
                         'num_inference_steps' => 30,
@@ -100,21 +113,92 @@ class AiController extends Controller
                 return response()->json([
                     'original'  => $request->image_url,
                     'generated' => $generated,
+                    'used'      => $usedNow,
+                    'limit'     => self::DAILY_LIMIT,
                 ]);
             }
         }
 
-        // ── 3. GD fallback — ALWAYS succeeds ──────────────────────────────────
-        return $this->gdFallback($imageBytes, $mimeType, $request->image_url);
+        // ── 3. GD fallback — always succeeds ──────────────────────────────────
+        return $this->gdFallback($imageBytes, $mimeType, $request->image_url, $usedNow);
     }
 
-    /**
-     * Call a HuggingFace Inference API model.
-     * Returns base64 data-URI on success, null on any failure.
-     */
+    // ── Helpers ────────────────────────────────────────────────────────────────
+
+    private function fetchImage(string $url): array
+    {
+        $appStorageBase = rtrim(config('app.url'), '/') . '/storage/';
+        $isLocal        = str_starts_with($url, $appStorageBase);
+
+        if ($isLocal) {
+            $storagePath = urldecode(substr($url, strlen($appStorageBase)));
+            if (! Storage::disk('public')->exists($storagePath)) {
+                return ['', 'image/jpeg'];
+            }
+            $mime = trim(explode(';', Storage::disk('public')->mimeType($storagePath) ?: 'image/jpeg')[0]);
+            return [Storage::disk('public')->get($storagePath), $mime];
+        }
+
+        try {
+            $resp  = Http::timeout(8)->get($url);
+            $bytes = $resp->successful() ? $resp->body() : '';
+            $mime  = trim(explode(';', $resp->header('Content-Type') ?: 'image/jpeg')[0]);
+            $mime  = in_array($mime, ['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
+                ? $mime : 'image/jpeg';
+            return [$bytes, $mime];
+        } catch (\Throwable $e) {
+            Log::warning('AI: image download failed', ['error' => $e->getMessage()]);
+            return ['', 'image/jpeg'];
+        }
+    }
+
+    private function callGemini(string $apiKey, string $imageBytes, string $mimeType): ?string
+    {
+        $endpoint = self::GEMINI_BASE . self::GEMINI_MODEL . ':generateContent?key=' . $apiKey;
+
+        try {
+            $response = Http::timeout(55)
+                ->withHeaders(['Content-Type' => 'application/json'])
+                ->post($endpoint, [
+                    'contents' => [[
+                        'parts' => [
+                            ['text' => self::GEMINI_PROMPT],
+                            ['inline_data' => [
+                                'mime_type' => $mimeType,
+                                'data'      => base64_encode($imageBytes),
+                            ]],
+                        ],
+                    ]],
+                    'generationConfig' => [
+                        'responseModalities' => ['IMAGE', 'TEXT'],
+                    ],
+                ]);
+
+            if (! $response->successful()) {
+                Log::warning('AI: Gemini ' . $response->status(), ['body' => substr($response->body(), 0, 400)]);
+                return null;
+            }
+
+            $parts = $response->json('candidates.0.content.parts') ?? [];
+            foreach ($parts as $part) {
+                if (isset($part['inline_data']['data'])) {
+                    $outMime = $part['inline_data']['mime_type'] ?? 'image/png';
+                    return 'data:' . $outMime . ';base64,' . $part['inline_data']['data'];
+                }
+            }
+
+            Log::warning('AI: Gemini returned no image part', ['body' => substr($response->body(), 0, 400)]);
+            return null;
+
+        } catch (\Throwable $e) {
+            Log::error('AI: Gemini exception', ['msg' => $e->getMessage()]);
+            return null;
+        }
+    }
+
     private function callHF(string $apiKey, string $model, array $payload): ?string
     {
-        $endpoint = self::API_BASE . $model;
+        $endpoint = self::HF_BASE . $model;
 
         for ($attempt = 1; $attempt <= 2; $attempt++) {
             try {
@@ -124,49 +208,38 @@ class AiController extends Controller
                     ->post($endpoint, $payload);
 
                 if ($response->status() === 404) {
-                    Log::warning("AI: model {$model} returned 404");
+                    Log::warning("AI: model {$model} 404");
                     return null;
                 }
 
                 if ($response->status() === 503) {
                     $wait = min((int) ($response->json('estimated_time') ?? 3), 3);
-                    if ($attempt < 2) {
-                        sleep($wait);
-                        continue;
-                    }
+                    if ($attempt < 2) { sleep($wait); continue; }
                     return null;
                 }
 
                 if (! $response->successful()) {
-                    Log::warning("AI: {$model} status {$response->status()} — " . $response->body());
+                    Log::warning("AI: {$model} status {$response->status()}");
                     return null;
                 }
 
                 $ct = $response->header('Content-Type') ?: 'image/jpeg';
                 if (str_contains($ct, 'application/json')) {
-                    Log::warning("AI: {$model} returned JSON instead of image");
                     return null;
                 }
 
                 return 'data:' . $ct . ';base64,' . base64_encode($response->body());
 
             } catch (\Throwable $e) {
-                Log::error("AI: {$model} exception (attempt {$attempt})", ['msg' => $e->getMessage()]);
-                if ($attempt < 2) {
-                    sleep(3);
-                }
+                Log::error("AI: {$model} attempt {$attempt}", ['msg' => $e->getMessage()]);
+                if ($attempt < 2) { sleep(3); }
             }
         }
 
         return null;
     }
 
-    /**
-     * PHP GD fallback — visually transforms the room image to simulate furniture.
-     * Applies warm interior lighting + draws furniture silhouettes (sofa, table, lamp, bookshelf).
-     * ALWAYS returns a valid {original, generated} response.
-     */
-    private function gdFallback(string $imageBytes, string $mimeType, string $originalUrl): JsonResponse
+    private function gdFallback(string $imageBytes, string $mimeType, string $originalUrl, int $usedNow): JsonResponse
     {
         if (strlen($imageBytes) > 0 && extension_loaded('gd') && function_exists('imagecreatefromstring')) {
             $src = @imagecreatefromstring($imageBytes);
@@ -175,15 +248,12 @@ class AiController extends Controller
                 $w = imagesx($src);
                 $h = imagesy($src);
 
-                // Enable alpha blending so semi-transparent shapes blend with the photo
                 imagealphablending($src, true);
 
-                // ── Step 1: Warm interior atmosphere ────────────────────────────
                 imagefilter($src, IMG_FILTER_BRIGHTNESS, 22);
-                imagefilter($src, IMG_FILTER_COLORIZE, 38, 12, -22);  // warm amber tint
-                imagefilter($src, IMG_FILTER_CONTRAST, -14);           // softer contrast
+                imagefilter($src, IMG_FILTER_COLORIZE, 38, 12, -22);
+                imagefilter($src, IMG_FILTER_CONTRAST, -14);
 
-                // ── Step 2: Simulated hardwood floor (lower 32%) ─────────────
                 $floorStart = (int) ($h * 0.68);
                 for ($y = $floorStart; $y < $h; $y++) {
                     $progress   = ($y - $floorStart) / max(1, $h - $floorStart);
@@ -192,7 +262,6 @@ class AiController extends Controller
                     imageline($src, 0, $y, $w - 1, $y, $floorColor);
                 }
 
-                // ── Step 3: Area rug (ellipse, center-lower) ─────────────────
                 $rugCx = (int) ($w * 0.44);
                 $rugCy = (int) ($h * 0.80);
                 $rugRx = (int) ($w * 0.30);
@@ -202,66 +271,47 @@ class AiController extends Controller
                     imagefilledellipse($src, $rugCx, $rugCy, $rugRx * 2, $rugRy * 2, $rugC);
                 }
 
-                // ── Step 4: Sofa (left side) ─────────────────────────────────
-                $sx = (int) ($w * 0.04);
-                $sy = (int) ($h * 0.59);
-                $sw = (int) ($w * 0.42);
-                $sh = (int) ($h * 0.18);
-
-                // Back cushion strip
+                $sx  = (int) ($w * 0.04);
+                $sy  = (int) ($h * 0.59);
+                $sw  = (int) ($w * 0.42);
+                $sh  = (int) ($h * 0.18);
                 $backC = imagecolorallocatealpha($src, 58, 42, 30, 52);
                 imagefilledrectangle($src, $sx, $sy - (int) ($sh * 0.65), $sx + $sw, $sy + 2, $backC);
-
-                // Seat
                 $seatC = imagecolorallocatealpha($src, 78, 58, 38, 48);
                 imagefilledrectangle($src, $sx, $sy, $sx + $sw, $sy + $sh, $seatC);
-
-                // Three individual seat cushions
                 $cw = (int) ($sw / 3) - 5;
                 for ($ci = 0; $ci < 3; $ci++) {
                     $cx    = $sx + $ci * ($cw + 5) + 2;
                     $cushC = imagecolorallocatealpha($src, 98, 75, 52, 52);
                     imagefilledrectangle($src, $cx, $sy + 3, $cx + $cw, $sy + $sh - 5, $cushC);
                 }
-
-                // Armrests
                 $armC = imagecolorallocatealpha($src, 45, 32, 22, 48);
                 imagefilledrectangle($src, $sx, $sy - (int) ($sh * 0.4), $sx + 18, $sy + $sh, $armC);
                 imagefilledrectangle($src, $sx + $sw - 18, $sy - (int) ($sh * 0.4), $sx + $sw, $sy + $sh, $armC);
 
-                // ── Step 5: Coffee table (center) ─────────────────────────────
                 $tx  = (int) ($w * 0.30);
                 $ty  = (int) ($h * 0.71);
                 $tw  = (int) ($w * 0.26);
                 $th  = (int) ($h * 0.07);
                 $tbc = imagecolorallocatealpha($src, 108, 74, 36, 42);
                 imagefilledrectangle($src, $tx, $ty, $tx + $tw, $ty + $th, $tbc);
-                // Glass/surface sheen
                 $sheen = imagecolorallocatealpha($src, 230, 195, 140, 105);
                 imagefilledrectangle($src, $tx + 3, $ty + 2, $tx + $tw - 3, $ty + (int) ($th * 0.38), $sheen);
 
-                // ── Step 6: Floor lamp (right side) ──────────────────────────
                 $lx   = (int) ($w * 0.80);
                 $lBot = (int) ($h * 0.80);
                 $lTop = (int) ($h * 0.37);
-
-                // Pole (3 px)
                 $poleC = imagecolorallocatealpha($src, 68, 50, 26, 62);
                 for ($px = -1; $px <= 1; $px++) {
                     imageline($src, $lx + $px, $lTop + 22, $lx + $px, $lBot, $poleC);
                 }
-
-                // Shade
                 $shadeC = imagecolorallocatealpha($src, 248, 215, 158, 72);
                 imagefilledellipse($src, $lx, $lTop + 20, 52, 30, $shadeC);
-
-                // Warm light glow (two layers)
                 $glow1 = imagecolorallocatealpha($src, 255, 235, 160, 118);
                 imagefilledellipse($src, $lx, $lTop + 55, 120, 80, $glow1);
                 $glow2 = imagecolorallocatealpha($src, 255, 245, 200, 122);
                 imagefilledellipse($src, $lx, $lTop + 38, 60, 40, $glow2);
 
-                // ── Step 7: Bookshelf (right wall, partial) ───────────────────
                 if ($w > 200) {
                     $bsx  = $w - (int) ($w * 0.13) - 6;
                     $bsy  = (int) ($h * 0.30);
@@ -269,15 +319,11 @@ class AiController extends Controller
                     $bsh  = (int) ($h * 0.42);
                     $shBC = imagecolorallocatealpha($src, 95, 62, 28, 68);
                     imagefilledrectangle($src, $bsx, $bsy, $bsx + $bsw, $bsy + $bsh, $shBC);
-
-                    // Shelf slats (4 levels)
                     $slatC = imagecolorallocatealpha($src, 70, 45, 18, 62);
                     for ($s = 1; $s <= 4; $s++) {
                         $sy2 = $bsy + (int) ($bsh * $s / 4.5);
                         imagefilledrectangle($src, $bsx, $sy2, $bsx + $bsw, $sy2 + 3, $slatC);
                     }
-
-                    // Colored book spines (top shelf)
                     $books = [[180, 55, 55], [55, 118, 180], [55, 158, 78], [220, 165, 40], [118, 55, 178]];
                     foreach ($books as $idx => $bc) {
                         $bkx  = $bsx + 4 + $idx * (int) ($bsw / 5);
@@ -286,7 +332,6 @@ class AiController extends Controller
                     }
                 }
 
-                // ── Step 8: "IA GENERADA" badge (top-right) ──────────────────
                 $bW   = 158;
                 $bH   = 30;
                 $bX   = $w - $bW - 10;
@@ -295,7 +340,6 @@ class AiController extends Controller
                 imagefilledrectangle($src, $bX, $bY, $bX + $bW, $bY + $bH, $badC);
                 imagestring($src, 4, $bX + 10, $bY + 7, 'IA GENERADA', imagecolorallocate($src, 255, 255, 255));
 
-                // ── Step 9: Branded footer bar ────────────────────────────────
                 $barH = 38;
                 $barC = imagecolorallocatealpha($src, 17, 24, 41, 12);
                 imagefilledrectangle($src, 0, $h - $barH, $w - 1, $h - 1, $barC);
@@ -310,11 +354,12 @@ class AiController extends Controller
                 return response()->json([
                     'original'  => $originalUrl,
                     'generated' => 'data:image/jpeg;base64,' . base64_encode($out),
+                    'used'      => $usedNow,
+                    'limit'     => self::DAILY_LIMIT,
                 ]);
             }
         }
 
-        // ── Absolute last resort: encode and return original as generated ──────
         $encoded = strlen($imageBytes) > 0
             ? 'data:' . $mimeType . ';base64,' . base64_encode($imageBytes)
             : $originalUrl;
@@ -322,6 +367,8 @@ class AiController extends Controller
         return response()->json([
             'original'  => $originalUrl,
             'generated' => $encoded,
+            'used'      => $usedNow,
+            'limit'     => self::DAILY_LIMIT,
         ]);
     }
 }
