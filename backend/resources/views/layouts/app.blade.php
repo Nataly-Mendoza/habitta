@@ -42,7 +42,17 @@
 
         {{-- Nav desktop --}}
         <nav class="hidden md:flex items-center gap-1">
-            @foreach([['Comprar',route('catalogo').'?listing_type=sale'],['Rentar',route('catalogo').'?listing_type=rent'],['Publicar',auth()->check()?route('panel.propiedades.crear'):route('registro')],['Explorar',route('catalogo')]] as [$label,$path])
+            @php
+                $navItems = [
+                    ['Comprar',  route('catalogo').'?listing_type=sale'],
+                    ['Rentar',   route('catalogo').'?listing_type=rent'],
+                    ['Explorar', route('catalogo')],
+                ];
+                if (auth()->check() && auth()->user()->hasAnyRole(['propietario','admin'])) {
+                    array_splice($navItems, 2, 0, [['Publicar', route('panel.propiedades.crear')]]);
+                }
+            @endphp
+            @foreach($navItems as [$label,$path])
             <a href="{{ $path }}" class="px-4 py-2 rounded-xl text-sm font-medium transition-all hover:bg-[rgba(27,43,94,0.06)] hover:text-[#1B2B5E]" style="color:#5A6280">{{ $label }}</a>
             @endforeach
         </nav>

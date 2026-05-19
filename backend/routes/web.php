@@ -56,14 +56,19 @@ Route::prefix('panel')->middleware('auth')->name('panel.')->group(function () {
     Route::get('/', [DashboardController::class, 'index'])->name('index');
 
     Route::prefix('propiedades')->name('propiedades.')->group(function () {
+        // Todos los usuarios autenticados pueden ver su lista
         Route::get('/', [MisPropiedadesController::class, 'index'])->name('index');
-        Route::get('/crear', [MisPropiedadesController::class, 'crear'])->name('crear');
-        Route::post('/', [MisPropiedadesController::class, 'store'])->name('store');
-        Route::get('/{property}/editar', [MisPropiedadesController::class, 'editar'])->name('editar');
-        Route::patch('/{property}', [MisPropiedadesController::class, 'update'])->name('update');
-        Route::delete('/{property}', [MisPropiedadesController::class, 'destroy'])->name('destroy');
-        Route::patch('/{property}/cerrar', [MisPropiedadesController::class, 'cerrar'])->name('cerrar');
-        Route::delete('/{property}/imagenes/{imagen}', [MisPropiedadesController::class, 'destroyImagen'])->name('imagenes.destroy');
+
+        // Solo propietario o admin pueden crear/editar/eliminar propiedades
+        Route::middleware('role:propietario|admin')->group(function () {
+            Route::get('/crear', [MisPropiedadesController::class, 'crear'])->name('crear');
+            Route::post('/', [MisPropiedadesController::class, 'store'])->name('store');
+            Route::get('/{property}/editar', [MisPropiedadesController::class, 'editar'])->name('editar');
+            Route::patch('/{property}', [MisPropiedadesController::class, 'update'])->name('update');
+            Route::delete('/{property}', [MisPropiedadesController::class, 'destroy'])->name('destroy');
+            Route::patch('/{property}/cerrar', [MisPropiedadesController::class, 'cerrar'])->name('cerrar');
+            Route::delete('/{property}/imagenes/{imagen}', [MisPropiedadesController::class, 'destroyImagen'])->name('imagenes.destroy');
+        });
     });
 
     Route::prefix('chat')->name('chat.')->group(function () {

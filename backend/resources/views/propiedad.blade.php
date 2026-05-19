@@ -65,7 +65,6 @@ $mainImgUrl = $mainImg?->url ?? 'https://images.unsplash.com/photo-1512917774080
             @endif
 
             {{-- AI Button --}}
-            @if($propiedad->type !== 'land')
             <div class="flex items-center gap-3 mb-6">
                 @auth
                 <button id="btnIA" onclick="amueblarConIA()"
@@ -81,7 +80,6 @@ $mainImgUrl = $mainImg?->url ?? 'https://images.unsplash.com/photo-1512917774080
                 </a>
                 @endauth
             </div>
-            @endif
 
             {{-- AI Modal --}}
             <div id="iaModal" class="fixed inset-0 z-[100] hidden items-center justify-center p-4"
