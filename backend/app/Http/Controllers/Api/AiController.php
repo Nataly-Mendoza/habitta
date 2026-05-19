@@ -24,6 +24,9 @@ class AiController extends Controller
 
     public function furnish(Request $request): JsonResponse
     {
+        // Allow up to 60 s — the built-in PHP server default can be shorter
+        set_time_limit(60);
+
         $request->validate([
             'image_url' => ['required', 'url', 'max:2048'],
         ]);
@@ -43,7 +46,7 @@ class AiController extends Controller
             $mimeType   = Storage::disk('public')->mimeType($storagePath) ?: 'image/jpeg';
         } else {
             try {
-                $imgResponse = Http::timeout(20)->get($request->image_url);
+                $imgResponse = Http::timeout(8)->get($request->image_url);
                 $imageBytes  = $imgResponse->successful() ? $imgResponse->body() : '';
                 $mimeType    = $imgResponse->header('Content-Type') ?: 'image/jpeg';
             } catch (\Throwable $e) {
@@ -116,7 +119,7 @@ class AiController extends Controller
         for ($attempt = 1; $attempt <= 2; $attempt++) {
             try {
                 $response = Http::withToken($apiKey)
-                    ->timeout(90)
+                    ->timeout(8)
                     ->withHeaders(['Content-Type' => 'application/json'])
                     ->post($endpoint, $payload);
 
@@ -126,7 +129,7 @@ class AiController extends Controller
                 }
 
                 if ($response->status() === 503) {
-                    $wait = min((int) ($response->json('estimated_time') ?? 15), 25);
+                    $wait = min((int) ($response->json('estimated_time') ?? 3), 3);
                     if ($attempt < 2) {
                         sleep($wait);
                         continue;
