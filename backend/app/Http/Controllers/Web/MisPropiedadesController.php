@@ -5,12 +5,15 @@ namespace App\Http\Controllers\Web;
 use App\Http\Controllers\Controller;
 use App\Models\Property;
 use App\Models\PropertyImage;
+use App\Services\CloudinaryService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 
 class MisPropiedadesController extends Controller
 {
+    public function __construct(private readonly CloudinaryService $cloudinary) {}
+
     public function index(Request $request)
     {
         $query = Property::with('images')->where('user_id', Auth::id());
@@ -75,8 +78,11 @@ class MisPropiedadesController extends Controller
         // File uploads
         if ($request->hasFile('images')) {
             foreach (array_values($request->file('images')) as $i => $file) {
+                $path = $this->cloudinary->isConfigured()
+                    ? ($this->cloudinary->upload($file, "habitta/properties/{$propiedad->id}") ?? $file->store("properties/{$propiedad->id}", 'public'))
+                    : $file->store("properties/{$propiedad->id}", 'public');
                 $propiedad->images()->create([
-                    'path'    => $file->store("properties/{$propiedad->id}", 'public'),
+                    'path'    => $path,
                     'is_main' => $i === 0,
                     'order'   => $i,
                 ]);
@@ -135,9 +141,12 @@ class MisPropiedadesController extends Controller
             $nextOrder = $property->images()->max('order') + 1;
             $hasMain   = $property->images()->where('is_main', true)->exists();
             foreach (array_values($request->file('images')) as $i => $file) {
+                $path = $this->cloudinary->isConfigured()
+                    ? ($this->cloudinary->upload($file, "habitta/properties/{$property->id}") ?? $file->store("properties/{$property->id}", 'public'))
+                    : $file->store("properties/{$property->id}", 'public');
                 $property->images()->create([
-                    'path'    => $file->store("properties/{$property->id}", 'public'),
-                    'is_main' => (!$hasMain && $i === 0),
+                    'path'    => $path,
+                    'is_main' => (! $hasMain && $i === 0),
                     'order'   => $nextOrder++,
                 ]);
             }
@@ -171,7 +180,9 @@ class MisPropiedadesController extends Controller
         abort_unless($property->user_id === Auth::id(), 403);
         abort_unless($imagen->property_id === $property->id, 404);
 
-        if (!str_starts_with($imagen->path, 'http')) {
+        if (str_starts_with($imagen->path, 'http')) {
+            $this->cloudinary->deleteByUrl($imagen->path);
+        } else {
             Storage::disk('public')->delete($imagen->path);
         }
 

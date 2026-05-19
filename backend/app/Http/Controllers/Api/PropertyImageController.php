@@ -6,13 +6,14 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\PropertyImageResource;
 use App\Models\Property;
 use App\Models\PropertyImage;
+use App\Services\CloudinaryService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 
 class PropertyImageController extends Controller
 {
-    public function store(Request $request, Property $property): JsonResponse
+    public function store(Request $request, Property $property, CloudinaryService $cloudinary): JsonResponse
     {
         $this->authorize('update', $property);
 
@@ -21,14 +22,22 @@ class PropertyImageController extends Controller
             'images.*'  => 'required|file|image|max:5120',
         ]);
 
-        $created = [];
+        $created   = [];
         $nextOrder = $property->images()->max('order') + 1;
+        $hasMain   = $property->images()->where('is_main', true)->exists();
 
-        foreach ($request->file('images') as $file) {
-            $path = $file->store("properties/{$property->id}", 'public');
+        foreach ($request->file('images') as $i => $file) {
+            $path = null;
+            if ($cloudinary->isConfigured()) {
+                $path = $cloudinary->upload($file, "habitta/properties/{$property->id}");
+            }
+            if (empty($path)) {
+                $path = $file->store("properties/{$property->id}", 'public');
+            }
+
             $created[] = $property->images()->create([
                 'path'    => $path,
-                'is_main' => $property->images()->count() === 0,
+                'is_main' => (! $hasMain && $i === 0),
                 'order'   => $nextOrder++,
             ]);
         }
@@ -36,7 +45,7 @@ class PropertyImageController extends Controller
         return response()->json(PropertyImageResource::collection(collect($created)), 201);
     }
 
-    public function destroy(Property $property, PropertyImage $image): JsonResponse
+    public function destroy(Property $property, PropertyImage $image, CloudinaryService $cloudinary): JsonResponse
     {
         $this->authorize('update', $property);
 
@@ -44,7 +53,9 @@ class PropertyImageController extends Controller
             abort(404);
         }
 
-        if (!str_starts_with($image->path, 'http')) {
+        if (str_starts_with($image->path, 'http')) {
+            $cloudinary->deleteByUrl($image->path);
+        } else {
             Storage::disk('public')->delete($image->path);
         }
 

@@ -278,8 +278,19 @@ class AiController extends Controller
 
     private function gdFallback(string $imageBytes, string $mimeType, string $originalUrl, int $usedNow): JsonResponse
     {
-        if (strlen($imageBytes) > 0 && extension_loaded('gd') && function_exists('imagecreatefromstring')) {
-            $src = @imagecreatefromstring($imageBytes);
+        if (extension_loaded('gd') && function_exists('imagecreatetruecolor')) {
+            $src = strlen($imageBytes) > 0 ? @imagecreatefromstring($imageBytes) : false;
+
+            // No source image — paint a synthetic warm room background
+            if ($src === false) {
+                $src = imagecreatetruecolor(768, 512);
+                $wall    = imagecolorallocate($src, 238, 228, 214);
+                $floor   = imagecolorallocate($src, 172, 132, 88);
+                $baseb   = imagecolorallocate($src, 248, 242, 232);
+                imagefill($src, 0, 0, $wall);
+                imagefilledrectangle($src, 0, (int)(512 * 0.64), 767, 511, $floor);
+                imagefilledrectangle($src, 0, (int)(512 * 0.63), 767, (int)(512 * 0.65), $baseb);
+            }
 
             if ($src !== false) {
                 $w = imagesx($src);
