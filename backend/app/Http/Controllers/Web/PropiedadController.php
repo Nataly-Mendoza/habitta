@@ -30,8 +30,10 @@ class PropiedadController extends Controller
             $conversacionId = $conv?->id;
         }
 
-        $propiedad = $property;
+        $propiedad   = $property;
+        $mainImg     = $property->images->firstWhere('is_main', true) ?? $property->images->first();
+        $mainImgUrl  = $mainImg?->url ?? '';
 
-        return view('propiedad', compact('propiedad', 'similares', 'conversacionId'));
+        return view('propiedad', compact('propiedad', 'similares', 'conversacionId', 'mainImgUrl'));
     }
 }

@@ -1,0 +1,31 @@
+# =============================================================================
+# Nixpacks configuration — forces PHP 8.3 and declares required extensions
+# https://nixpacks.com/docs/configuration/file
+# =============================================================================
+
+[phases.setup]
+# Explicit PHP 8.3 package + Composer + extensions needed by Habitta:
+#   gd         — AI furnishing GD fallback (imagefilter, imagecreatefromstring, etc.)
+#   pdo        — Laravel database layer
+#   pdo_pgsql  — PostgreSQL (Railway add-on)
+#   mbstring   — string helpers, Laravel internals
+#   tokenizer  — required by Laravel
+#   xml        — required by Laravel / Sanctum
+#   curl       — HTTP::get / Http facade (HuggingFace calls)
+#   fileinfo   — mime-type detection for uploaded images
+#   zip        — Composer itself needs this
+#   openssl    — Sanctum token hashing
+nixPkgs = [
+    "php83",
+    "php83Packages.composer",
+    "php83Extensions.gd",
+    "php83Extensions.pdo",
+    "php83Extensions.pdo_pgsql",
+    "php83Extensions.mbstring",
+    "php83Extensions.tokenizer",
+    "php83Extensions.xml",
+    "php83Extensions.curl",
+    "php83Extensions.fileinfo",
+    "php83Extensions.zip",
+    "php83Extensions.openssl"
+]
