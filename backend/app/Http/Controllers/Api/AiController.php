@@ -85,8 +85,11 @@ class AiController extends Controller
             }
         }
 
-        // ── 2. Pollinations.ai — free, no key, always available ───────────────
-        $generated = $this->callPollinations();
+        // ── 2. Pollinations.ai con descripción de Gemini Vision ───────────────
+        $roomDesc  = (! empty($geminiKey) && strlen($imageBytes) > 0)
+            ? $this->callGeminiVision($geminiKey, $imageBytes, $mimeType)
+            : null;
+        $generated = $this->callPollinations($roomDesc);
         if ($generated !== null) {
             return response()->json([
                 'original'  => $request->image_url,
@@ -217,11 +220,47 @@ class AiController extends Controller
         }
     }
 
-    private function callPollinations(): ?string
+    private function callGeminiVision(string $apiKey, string $imageBytes, string $mimeType): ?string
     {
-        $prompt = urlencode(self::POLLINATIONS_PROMPT);
-        $seed   = rand(1000, 99999);
-        $url    = self::POLLINATIONS_BASE . $prompt . '?width=768&height=512&model=flux&nologo=true&seed=' . $seed;
+        $endpoint = self::GEMINI_BASE . 'gemini-2.0-flash-exp:generateContent?key=' . $apiKey;
+
+        try {
+            $response = Http::timeout(15)
+                ->withHeaders(['Content-Type' => 'application/json'])
+                ->post($endpoint, [
+                    'contents' => [[
+                        'parts' => [
+                            ['text' => 'Describe this room photo in under 40 words for an interior designer: room type, architectural style, wall color, floor type, and any notable features. Be concise and descriptive only.'],
+                            ['inline_data' => [
+                                'mime_type' => $mimeType,
+                                'data'      => base64_encode($imageBytes),
+                            ]],
+                        ],
+                    ]],
+                    'generationConfig' => ['maxOutputTokens' => 80],
+                ]);
+
+            if ($response->successful()) {
+                $text = $response->json('candidates.0.content.parts.0.text') ?? '';
+                return trim(preg_replace('/\s+/', ' ', $text));
+            }
+        } catch (\Throwable $e) {
+            Log::warning('AI: Gemini vision failed', ['msg' => $e->getMessage()]);
+        }
+
+        return null;
+    }
+
+    private function callPollinations(?string $roomDescription = null): ?string
+    {
+        $basePrompt = $roomDescription
+            ? rtrim($roomDescription, '. ') . '. Add modern contemporary furniture: comfortable sofa, '
+              . 'coffee table, bookshelves, floor lamp, area rug, indoor plants, warm ambient lighting. '
+              . 'Interior design, realistic, 4k, professional architectural photography'
+            : self::POLLINATIONS_PROMPT;
+
+        $url = self::POLLINATIONS_BASE . urlencode($basePrompt)
+             . '?width=768&height=512&model=flux&nologo=true&seed=' . rand(1000, 99999);
 
         try {
             $response = Http::timeout(45)->get($url);

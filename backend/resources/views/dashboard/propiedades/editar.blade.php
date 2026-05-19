@@ -170,15 +170,19 @@
         <div class="rounded-2xl p-6" style="background:white;border:1px solid rgba(27,43,94,0.08)">
             <h2 class="font-semibold mb-2" style="color:#1B2B5E;font-size:16px">Agregar imágenes</h2>
             <p class="text-sm mb-4" style="color:#8A92B2">Sube nuevas fotos (opcional). JPG, PNG, WEBP · máx. 5 MB c/u.</p>
-            <label class="flex flex-col items-center justify-center w-full rounded-xl cursor-pointer transition hover:opacity-90"
-                   style="border:2px dashed rgba(27,43,94,0.2);background:#F8F9FF;padding:24px 16px">
+            <div onclick="document.getElementById('imagenesInput').click()"
+                 class="flex flex-col items-center justify-center w-full rounded-xl cursor-pointer transition hover:opacity-90"
+                 style="border:2px dashed rgba(27,43,94,0.2);background:#F8F9FF;padding:24px 16px">
                 <svg width="28" height="28" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" style="color:#B0B8D0;margin-bottom:8px">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/>
                 </svg>
                 <p class="text-sm font-semibold" style="color:#1B2B5E">Seleccionar fotos</p>
-                <input id="imagenesInput" type="file" name="images[]" multiple accept="image/jpeg,image/png,image/webp" class="hidden"
-                       onchange="previsualizarImagenes(this)">
-            </label>
+                <p id="imgCounter" class="text-xs mt-1 font-semibold" style="color:#C9A96E"></p>
+            </div>
+            <input id="imagenesInput" type="file" name="images[]" multiple accept="image/jpeg,image/png,image/webp"
+                   style="position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;pointer-events:none"
+                   onclick="event.stopPropagation()"
+                   onchange="agregarImagenes(this)">
             <div id="previewGrid" class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3 mt-4"></div>
         </div>
 
@@ -201,16 +205,44 @@
 
 @push('scripts')
 <script>
-function previsualizarImagenes(input) {
+let dtFiles = new DataTransfer();
+
+function agregarImagenes(input) {
+    Array.from(input.files).forEach(file => {
+        const existe = Array.from(dtFiles.files).some(f => f.name === file.name && f.size === file.size);
+        if (!existe && dtFiles.files.length < 20) dtFiles.items.add(file);
+    });
+    input.value = '';
+    document.getElementById('imagenesInput').files = dtFiles.files;
+    renderPreviews();
+}
+
+function quitarImagen(i) {
+    const nuevo = new DataTransfer();
+    Array.from(dtFiles.files).forEach((f, idx) => { if (idx !== i) nuevo.items.add(f); });
+    dtFiles = nuevo;
+    document.getElementById('imagenesInput').files = dtFiles.files;
+    renderPreviews();
+}
+
+function renderPreviews() {
     const grid = document.getElementById('previewGrid');
+    const counter = document.getElementById('imgCounter');
+    const n = dtFiles.files.length;
     grid.innerHTML = '';
-    Array.from(input.files).slice(0, 20).forEach((file) => {
+    counter.textContent = n > 0 ? n + ' foto' + (n !== 1 ? 's' : '') + ' nueva' + (n !== 1 ? 's' : '') + ' seleccionada' + (n !== 1 ? 's' : '') : '';
+
+    Array.from(dtFiles.files).forEach((file, i) => {
         const reader = new FileReader();
         reader.onload = (e) => {
             const div = document.createElement('div');
-            div.className = 'relative rounded-xl overflow-hidden';
+            div.className = 'relative rounded-xl overflow-hidden group';
             div.style.cssText = 'aspect-ratio:1;border:2px solid rgba(27,43,94,0.1)';
-            div.innerHTML = `<img src="${e.target.result}" class="w-full h-full object-cover">`;
+            div.innerHTML = `
+                <img src="${e.target.result}" class="w-full h-full object-cover">
+                <button type="button" onclick="quitarImagen(${i})"
+                    class="absolute top-1 right-1 w-5 h-5 rounded-full flex items-center justify-center text-white text-xs font-bold opacity-0 group-hover:opacity-100 transition"
+                    style="background:rgba(220,38,38,0.85)">✕</button>`;
             grid.appendChild(div);
         };
         reader.readAsDataURL(file);
